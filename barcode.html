@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Receiving Scanner</title>
+
+    <script src="https://unpkg.com/html5-qrcode"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            max-width: 500px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        #reader {
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #eee;
+            border-radius: 8px;
+            font-size: 20px;
+            text-align: center;
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            margin-top: 15px;
+            font-size: 18px;
+            border: none;
+            border-radius: 8px;
+            background: #222;
+            color: white;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>Receiving</h1>
+
+    <p style="text-align:center;">
+        Scan the receiving barcode
+    </p>
+
+    <div id="reader"></div>
+
+    <div class="result">
+        Scanned:
+        <strong id="barcodeResult">Nothing yet</strong>
+    </div>
+
+</div>
+
+<script>
+
+    // PUT YOUR N8N WEBHOOK URL HERE
+    const WEBHOOK_URL = "https://n8n.leadsking.ai/webhook/barcode-erp";
+
+
+    function onScanSuccess(decodedText, decodedResult) {
+
+        console.log("Barcode detected:", decodedText);
+
+        // Show barcode on screen
+        document.getElementById("barcodeResult").innerText = decodedText;
+
+        // Stop scanning after successful scan
+        html5QrcodeScanner.clear();
+
+        // Send barcode to n8n
+        fetch(WEBHOOK_URL, {
+            method: "POST",
+
+            headers: {
+                "Content-Type": "application/json"
+            },
+
+            body: JSON.stringify({
+                barcode: decodedText
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+
+            console.log("n8n response:", data);
+
+        })
+        .catch(error => {
+
+            console.error("Error sending to n8n:", error);
+
+        });
+    }
+
+
+    function onScanFailure(error) {
+        // Ignore scan failures.
+    }
+
+
+    const html5QrcodeScanner = new Html5QrcodeScanner(
+        "reader",
+        {
+            fps: 10,
+            qrbox: {
+                width: 300,
+                height: 150
+            }
+        },
+        false
+    );
+
+
+    html5QrcodeScanner.render(
+        onScanSuccess,
+        onScanFailure
+    );
+
+</script>
+
+</body>
+</html>
