@@ -42,6 +42,37 @@
             text-align: center;
         }
 
+        .success {
+            background: #dff5e1;
+            color: #176b2c;
+        }
+
+        .error {
+            background: #ffe0e0;
+            color: #9b1c1c;
+        }
+
+        #weightSection {
+            display: none;
+            margin-top: 20px;
+        }
+
+        label {
+            display: block;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 15px;
+            font-size: 22px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+
         button {
             width: 100%;
             padding: 15px;
@@ -52,6 +83,22 @@
             background: #222;
             color: white;
         }
+
+        button:disabled {
+            background: #999;
+        }
+
+        #newScanButton {
+            display: none;
+            background: #555;
+        }
+
+        .info {
+            margin-top: 10px;
+            font-size: 15px;
+            color: #666;
+            text-align: center;
+        }
     </style>
 </head>
 
@@ -61,70 +108,154 @@
 
     <h1>Receiving</h1>
 
-    <p style="text-align:center;">
+    <p id="instructionText" style="text-align:center;">
         Scan the receiving barcode
     </p>
 
     <div id="reader"></div>
 
-    <div class="result">
+    <div class="result" id="resultBox">
         Scanned:
         <strong id="barcodeResult">Nothing yet</strong>
     </div>
+
+    <!--
+        This section stays hidden until a barcode is successfully scanned.
+    -->
+    <div id="weightSection">
+
+        <label for="weightInput">
+            Gross Weight (Lbs)
+        </label>
+
+        <input
+            type="number"
+            id="weightInput"
+            inputmode="decimal"
+            min="70"
+            step="0.01"
+            placeholder="Enter gross weight"
+        >
+
+        <div class="info">
+            Tare: 70 Lbs &nbsp; | &nbsp; Packaging: Gaylord
+        </div>
+
+        <button id="submitWeightButton">
+            Submit Receiving
+        </button>
+
+    </div>
+
+    <button id="newScanButton">
+        Scan Another Inbound
+    </button>
 
 </div>
 
 <script>
 
-    // PUT YOUR N8N WEBHOOK URL HERE
-    const WEBHOOK_URL = "https://n8n.leadsking.ai/webhook/barcode-erp";
+    // n8n webhook
+    const WEBHOOK_URL =
+        "https://n8n.leadsking.ai/webhook/barcode-erp";
 
 
+    // Fixed tare used by the receiving process.
+    // This is displayed/calculated by the frontend,
+    // but does NOT need to be sent to n8n.
+    const FIXED_TARE = 70;
+
+
+    // Holds the barcode after scanning.
+    let scannedBarcode = null;
+
+
+    /*
+     * ==========================================
+     * BARCODE SCAN SUCCESS
+     * ==========================================
+     *
+     * IMPORTANT:
+     *
+     * NO WEBHOOK REQUEST IS MADE HERE.
+     *
+     * We simply:
+     * 1. Store the barcode
+     * 2. Stop the scanner
+     * 3. Show the weight field
+     * 4. Wait for the user to enter weight
+     */
     function onScanSuccess(decodedText, decodedResult) {
 
         console.log("Barcode detected:", decodedText);
 
-        // Show barcode on screen
-        document.getElementById("barcodeResult").innerText = decodedText;
 
-        // Stop scanning after successful scan
+        // Prevent duplicate scans.
+        if (scannedBarcode !== null) {
+            return;
+        }
+
+
+        // Store barcode locally.
+        scannedBarcode = decodedText;
+
+
+        // Stop scanner.
         html5QrcodeScanner.clear();
 
-        // Send barcode to n8n
-        fetch(WEBHOOK_URL, {
-            method: "POST",
 
-            headers: {
-                "Content-Type": "application/json"
-            },
+        // Update instruction.
+        document.getElementById("instructionText").innerText =
+            "Enter the gross weight";
 
-            body: JSON.stringify({
-                barcode: decodedText
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
 
-            console.log("n8n response:", data);
+        // Show scanned barcode.
+        const resultBox =
+            document.getElementById("resultBox");
 
-        })
-        .catch(error => {
+        resultBox.className = "result success";
 
-            console.error("Error sending to n8n:", error);
+        resultBox.innerHTML = `
+            Inbound Scanned<br>
+            <strong>${decodedText}</strong>
+        `;
 
-        });
+
+        // Show weight section.
+        document.getElementById("weightSection").style.display =
+            "block";
+
+
+        // Put cursor directly into weight field.
+        document.getElementById("weightInput").focus();
+
     }
 
+
+    /*
+     * ==========================================
+     * BARCODE SCAN FAILURE
+     * ==========================================
+     */
 
     function onScanFailure(error) {
-        // Ignore scan failures.
+
+        // Ignore normal scanning failures.
+
     }
 
+
+    /*
+     * ==========================================
+     * CREATE SCANNER
+     * ==========================================
+     */
 
     const html5QrcodeScanner = new Html5QrcodeScanner(
         "reader",
         {
             fps: 10,
+
             qrbox: {
                 width: 300,
                 height: 150
@@ -134,10 +265,277 @@
     );
 
 
+    // Start scanner.
     html5QrcodeScanner.render(
         onScanSuccess,
         onScanFailure
     );
+
+
+    /*
+     * ==========================================
+     * SUBMIT RECEIVING
+     * ==========================================
+     *
+     * THIS is the ONLY place where the webhook
+     * is called.
+     */
+
+    document.getElementById("submitWeightButton")
+        .addEventListener("click", function() {
+
+
+            const weightInput =
+                document.getElementById("weightInput");
+
+
+            const weight =
+                parseFloat(weightInput.value);
+
+
+            /*
+             * Validate barcode.
+             */
+
+            if (!scannedBarcode) {
+
+                alert(
+                    "Please scan an inbound barcode first."
+                );
+
+                return;
+            }
+
+
+            /*
+             * Validate weight.
+             */
+
+            if (!weight || weight < FIXED_TARE) {
+
+                alert(
+                    "Please enter a valid gross weight. " +
+                    "Weight must be at least 70 Lbs."
+                );
+
+                weightInput.focus();
+
+                return;
+            }
+
+
+            /*
+             * Get submit button.
+             */
+
+            const button =
+                document.getElementById(
+                    "submitWeightButton"
+                );
+
+
+            /*
+             * Prevent double submission.
+             */
+
+            button.disabled = true;
+
+            button.innerText =
+                "Submitting...";
+
+
+            /*
+             * Update screen while waiting.
+             */
+
+            const resultBox =
+                document.getElementById("resultBox");
+
+            resultBox.className = "result";
+
+            resultBox.innerHTML = `
+                Sending receiving information...<br>
+                <strong>${scannedBarcode}</strong>
+            `;
+
+
+            /*
+             * ======================================
+             * SINGLE WEBHOOK REQUEST
+             * ======================================
+             *
+             * n8n receives:
+             *
+             * {
+             *     barcode: "IN-10798",
+             *     weightReceived: 4590
+             * }
+             *
+             * Tare and packaging remain controlled
+             * by n8n/Razor.
+             */
+
+            fetch(WEBHOOK_URL, {
+
+                method: "POST",
+
+                headers: {
+                    "Content-Type": "application/json"
+                },
+
+                body: JSON.stringify({
+
+                    barcode: scannedBarcode,
+
+                    weightReceived: weight
+
+                })
+
+            })
+
+
+            /*
+             * ======================================
+             * WEBHOOK RESPONSE
+             * ======================================
+             */
+
+            .then(response => {
+
+                if (!response.ok) {
+
+                    throw new Error(
+                        "n8n returned HTTP " +
+                        response.status
+                    );
+
+                }
+
+                return response.json();
+
+            })
+
+
+            /*
+             * ======================================
+             * SUCCESS
+             * ======================================
+             */
+
+            .then(data => {
+
+                console.log(
+                    "Receiving completed:",
+                    data
+                );
+
+
+                const netWeight =
+                    weight - FIXED_TARE;
+
+
+                resultBox.className =
+                    "result success";
+
+
+                resultBox.innerHTML = `
+                    <strong>Receiving Complete</strong>
+                    <br><br>
+                    Inbound: ${scannedBarcode}
+                    <br>
+                    Gross: ${weight.toFixed(2)} Lbs
+                    <br>
+                    Tare: ${FIXED_TARE.toFixed(2)} Lbs
+                    <br>
+                    Net: ${netWeight.toFixed(2)} Lbs
+                `;
+
+
+                /*
+                 * Hide weight section after
+                 * successful submission.
+                 */
+
+                document.getElementById(
+                    "weightSection"
+                ).style.display = "none";
+
+
+                /*
+                 * Update instruction.
+                 */
+
+                document.getElementById(
+                    "instructionText"
+                ).innerText =
+                    "Receiving successfully submitted";
+
+
+                /*
+                 * Show new scan button.
+                 */
+
+                document.getElementById(
+                    "newScanButton"
+                ).style.display = "block";
+
+            })
+
+
+            /*
+             * ======================================
+             * ERROR
+             * ======================================
+             */
+
+            .catch(error => {
+
+                console.error(
+                    "Error submitting receiving:",
+                    error
+                );
+
+
+                resultBox.className =
+                    "result error";
+
+
+                resultBox.innerHTML = `
+                    <strong>Submission Failed</strong>
+                    <br><br>
+                    ${scannedBarcode}
+                    <br>
+                    Please try again.
+                `;
+
+
+                /*
+                 * Allow user to submit again.
+                 */
+
+                button.disabled = false;
+
+                button.innerText =
+                    "Submit Receiving";
+
+            });
+
+        });
+
+
+    /*
+     * ==========================================
+     * NEW SCAN
+     * ==========================================
+     */
+
+    document.getElementById("newScanButton")
+        .addEventListener("click", function() {
+
+            // Reload the page and restart scanner.
+            location.reload();
+
+        });
 
 </script>
 
