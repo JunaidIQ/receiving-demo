@@ -426,6 +426,11 @@
             console.log("Receiving completed:", data);
 
             const netWeight = weight - weightTare;
+
+            const commodityName = getCommodityNameById(commodityId);
+            const packagingName = getPackagingNameById(packagingTypeId);
+            const workflowName = getWorkflowNameById(workflowStepId);
+
             resultBox.className = "result success";
 
             resultBox.innerHTML = `
@@ -449,6 +454,21 @@
 
                 Net:
                 ${netWeight.toFixed(2)} Lbs
+
+                <br>
+
+                Item:
+                ${commodityName}
+
+                <br>
+
+                Packaging:
+                ${packagingName}
+
+                <br>
+
+                Workflow:
+                ${workflowName}
             `;
 
             document.getElementById("weightSection").style.display = "none";
