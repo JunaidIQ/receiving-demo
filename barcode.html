@@ -416,17 +416,27 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(receivingData)
         })
-        .then(response => {
+        .then(async response => {
+            const text = await response.text();
+
             if (!response.ok) {
-                throw new Error("n8n returned HTTP " + response.status);
+                throw new Error("n8n returned HTTP " + response.status + ": " + text);
             }
-            return response.json();
+
+            if (!text) {
+                return {};
+            }
+
+            try {
+                return JSON.parse(text);
+            } catch {
+                return {};
+            }
         })
         .then(data => {
             console.log("Receiving completed:", data);
 
             const netWeight = weight - weightTare;
-
             const commodityName = getCommodityNameById(commodityId);
             const packagingName = getPackagingNameById(packagingTypeId);
             const workflowName = getWorkflowNameById(workflowStepId);
