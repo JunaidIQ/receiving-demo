@@ -7,6 +7,7 @@
     <title>Receiving Scanner</title>
 
     <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="./receiving-data.js"></script>
 
     <style>
         body {
@@ -136,8 +137,6 @@
 
     <div id="weightSection">
 
-        <!-- GROSS WEIGHT -->
-
         <label for="weightInput">
             Gross Weight (Lbs)
         </label>
@@ -151,115 +150,25 @@
             placeholder="Enter gross weight"
         >
 
-
-        <!-- COMMODITY -->
-
         <label for="commoditySelect">
             Item / Commodity
         </label>
 
-        <select id="commoditySelect">
+        <select id="commoditySelect"></select>
 
-            <!-- DEFAULT -->
-            <option value="653" selected>
-                Mix Electronics
-            </option>
-
-            <!-- ADD YOUR OTHER COMMODITIES HERE -->
-
-            <option value="YOUR_ID_1">
-                Commodity 1
-            </option>
-
-            <option value="YOUR_ID_2">
-                Commodity 2
-            </option>
-
-            <option value="YOUR_ID_3">
-                Commodity 3
-            </option>
-
-        </select>
-
-        <div class="field-info">
-            Default: Mix Electronics
+        <div class="field-info" id="commodityDefaultText">
+            Default: Loading...
         </div>
-
-
-        <!-- PACKAGING -->
 
         <label for="packagingSelect">
             Packaging
         </label>
 
-        <select id="packagingSelect">
-
-            <!-- DEFAULT -->
-            <option
-                value="19"
-                data-tare="70"
-                selected
-            >
-                Gaylord
-            </option>
-
-            <option
-                value="18"
-                data-tare="45"
-            >
-                Pallet
-            </option>
-
-            <option
-                value="20"
-                data-tare="0"
-            >
-                Unit
-            </option>
-
-            <option
-                value="21"
-                data-tare="0"
-            >
-                Box
-            </option>
-
-            <option
-                value="22"
-                data-tare="0"
-            >
-                Loose
-            </option>
-
-            <option
-                value="23"
-                data-tare="180"
-            >
-                Cage
-            </option>
-
-            <option
-                value="24"
-                data-tare="32200"
-            >
-                40 yard roll-off container
-            </option>
-
-            <option
-                value="25"
-                data-tare="140"
-            >
-                Double Gaylord
-            </option>
-
-        </select>
+        <select id="packagingSelect"></select>
 
         <div class="field-info">
             Tare automatically changes with packaging.
         </div>
-
-
-        <!-- TARE DISPLAY -->
 
         <label>
             Tare Weight
@@ -272,83 +181,19 @@
             readonly
         >
 
-
-        <!-- WORKFLOW -->
-
         <label for="workflowSelect">
             Workflow Step
         </label>
 
-        <select id="workflowSelect">
+        <select id="workflowSelect"></select>
 
-            <option value="10">
-                Audit
-            </option>
-
-            <!-- DEFAULT -->
-            <option value="9" selected>
-                Consumed
-            </option>
-
-            <option value="3">
-                Data Destruction
-            </option>
-
-            <option value="14">
-                Dismantle
-            </option>
-
-            <option value="4">
-                Final
-            </option>
-
-            <option value="13">
-                Finished Goods - Ready for Shipment
-            </option>
-
-            <option value="11">
-                ITAD
-            </option>
-
-            <option value="8">
-                Processed
-            </option>
-
-            <option value="20">
-                Processed &amp; Audit
-            </option>
-
-            <option value="18">
-                Scrap
-            </option>
-
-            <option value="1">
-                Sort
-            </option>
-
-            <option value="5">
-                Testing
-            </option>
-
-            <option value="16">
-                Work in progress
-            </option>
-
-        </select>
-
-        <div class="field-info">
-            Default: Consumed
+        <div class="field-info" id="workflowDefaultText">
+            Default: Loading...
         </div>
-
-
-        <!-- SUMMARY -->
 
         <div class="info" id="receivingSummary">
             Tare: 70 Lbs
         </div>
-
-
-        <!-- SUBMIT -->
 
         <button id="submitWeightButton">
             Submit Receiving
@@ -362,7 +207,6 @@
     </button>
 
 </div>
-
 
 <script>
 
@@ -393,482 +237,247 @@
 
     let scannedBarcode = null;
 
+    function getCommodityNameById(id) {
+        const commodity = COMMODITIES.find(item => item.id === id);
+        return commodity ? commodity.name : "Commodity";
+    }
 
-    // =========================================
-    // BARCODE SCAN SUCCESS
-    // =========================================
+    function getWorkflowNameById(id) {
+        const workflow = WORKFLOW_STEPS.find(item => item.id === id);
+        return workflow ? workflow.name : "Workflow";
+    }
 
-    function onScanSuccess(decodedText, decodedResult) {
+    function populateCommoditySelect() {
+        const select = document.getElementById("commoditySelect");
 
-        console.log("Barcode detected:", decodedText);
+        COMMODITIES.forEach((item) => {
+            const option = document.createElement("option");
+            option.value = item.id;
+            option.textContent = item.name;
 
+            if (item.id === RECEIVING_DEFAULTS.commodityId) {
+                option.selected = true;
+            }
 
-        // Prevent duplicate scans
-        if (scannedBarcode !== null) {
-            return;
-        }
+            select.appendChild(option);
+        });
 
+        const defaultText = document.getElementById("commodityDefaultText");
+        defaultText.textContent =
+            "Default: " + getCommodityNameById(RECEIVING_DEFAULTS.commodityId);
+    }
 
-        // Store barcode
+    function populatePackagingSelect() {
+        const select = document.getElementById("packagingSelect");
+
+        PACKAGING_TYPES.forEach((item) => {
+            const option = document.createElement("option");
+            option.value = item.id;
+            option.dataset.tare = item.weight;
+            option.textContent = item.name;
+
+            if (item.id === RECEIVING_DEFAULTS.packagingTypeId) {
+                option.selected = true;
+            }
+
+            select.appendChild(option);
+        });
+    }
+
+    function populateWorkflowSelect() {
+        const select = document.getElementById("workflowSelect");
+
+        WORKFLOW_STEPS.forEach((item) => {
+            const option = document.createElement("option");
+            option.value = item.id;
+            option.textContent = item.name;
+
+            if (item.id === RECEIVING_DEFAULTS.workflowStepId) {
+                option.selected = true;
+            }
+
+            select.appendChild(option);
+        });
+
+        const defaultText = document.getElementById("workflowDefaultText");
+        defaultText.textContent =
+            "Default: " + getWorkflowNameById(RECEIVING_DEFAULTS.workflowStepId);
+    }
+
+    function updateTareUI() {
+        const packagingSelect = document.getElementById("packagingSelect");
+        const selectedOption = packagingSelect.options[packagingSelect.selectedIndex];
+        const tare = parseFloat(selectedOption?.dataset?.tare || 0);
+
+        document.getElementById("tareDisplay").value = tare + " Lbs";
+        document.getElementById("receivingSummary").innerText = "Tare: " + tare + " Lbs";
+    }
+
+    populateCommoditySelect();
+    populatePackagingSelect();
+    populateWorkflowSelect();
+    updateTareUI();
+
+    document.getElementById("packagingSelect")
+        .addEventListener("change", updateTareUI);
+
+    function onScanSuccess(decodedText) {
+        if (scannedBarcode !== null) return;
+
         scannedBarcode = decodedText;
+        document.getElementById("barcodeResult").innerText = decodedText;
 
-
-        // Show barcode
-        document.getElementById(
-            "barcodeResult"
-        ).innerText = decodedText;
-
-
-        // Stop scanner
         html5QrcodeScanner.clear();
 
+        document.getElementById("instructionText").innerText = "Enter receiving information";
 
-        // Update instruction
-        document.getElementById(
-            "instructionText"
-        ).innerText =
-            "Enter receiving information";
-
-
-        // Update result
-        const resultBox =
-            document.getElementById("resultBox");
-
+        const resultBox = document.getElementById("resultBox");
         resultBox.className = "result success";
-
         resultBox.innerHTML = `
             Inbound Scanned<br>
             <strong>${decodedText}</strong>
         `;
 
-
-        // Show receiving fields
-        document.getElementById(
-            "weightSection"
-        ).style.display = "block";
-
-
-        // Focus weight
-        document.getElementById(
-            "weightInput"
-        ).focus();
-
+        document.getElementById("weightSection").style.display = "block";
+        document.getElementById("weightInput").focus();
     }
 
-
-    // =========================================
-    // BARCODE SCAN FAILURE
-    // =========================================
-
-    function onScanFailure(error) {
-
-        // Ignore normal scan failures
-
+    function onScanFailure() {
+        // ignore
     }
 
-
-    // =========================================
-    // CREATE SCANNER
-    // =========================================
-
-    const html5QrcodeScanner =
-        new Html5QrcodeScanner(
-            "reader",
-            {
-                fps: 10,
-
-                qrbox: {
-                    width: 300,
-                    height: 150
-                }
-            },
-            false
-        );
-
-
-    // Start scanner
-    html5QrcodeScanner.render(
-        onScanSuccess,
-        onScanFailure
+    const html5QrcodeScanner = new Html5QrcodeScanner(
+        "reader",
+        {
+            fps: 10,
+            qrbox: { width: 300, height: 150 }
+        },
+        false
     );
 
+    html5QrcodeScanner.render(onScanSuccess, onScanFailure);
 
-    // =========================================
-    // PACKAGING CHANGE
-    // Automatically update tare
-    // =========================================
+    document.getElementById("submitWeightButton").addEventListener("click", function () {
+        const weightInput = document.getElementById("weightInput");
+        const weight = parseFloat(weightInput.value);
 
-    document
-        .getElementById("packagingSelect")
-        .addEventListener("change", function() {
+        const commoditySelect = document.getElementById("commoditySelect");
+        const packagingSelect = document.getElementById("packagingSelect");
+        const workflowSelect = document.getElementById("workflowSelect");
 
-            const selectedOption =
-                this.options[this.selectedIndex];
+        if (!scannedBarcode) {
+            alert("Please scan an inbound barcode first.");
+            return;
+        }
 
+        if (!weight || weight <= 0) {
+            alert("Please enter a valid gross weight.");
+            weightInput.focus();
+            return;
+        }
 
-            // Get packaging tare
-            const tare =
-                parseFloat(
-                    selectedOption.dataset.tare
-                );
+        const commodityId = Number(commoditySelect.value);
+        const packagingTypeId = Number(packagingSelect.value);
+        const workflowStepId = Number(workflowSelect.value);
 
+        const selectedPackaging = packagingSelect.options[packagingSelect.selectedIndex];
+        const weightTare = parseFloat(selectedPackaging.dataset.tare || 0);
 
-            // Update tare display
-            document.getElementById(
-                "tareDisplay"
-            ).value =
-                tare + " Lbs";
+        if (weight < weightTare) {
+            alert("Gross weight cannot be less than " + weightTare + " Lbs tare.");
+            weightInput.focus();
+            return;
+        }
 
+        const button = document.getElementById("submitWeightButton");
+        button.disabled = true;
+        button.innerText = "Submitting...";
 
-            // Update summary
-            document.getElementById(
-                "receivingSummary"
-            ).innerText =
-                "Tare: " + tare + " Lbs";
+        const resultBox = document.getElementById("resultBox");
+        resultBox.className = "result";
+        resultBox.innerHTML = `
+            Sending receiving information...<br>
+            <strong>${scannedBarcode}</strong>
+        `;
 
-        });
+        const receivingData = {
+            barcode: scannedBarcode,
+            weightReceived: weight,
+            commodityId: commodityId,
+            packagingTypeId: packagingTypeId,
+            weightTare: weightTare,
+            workflowStepId: workflowStepId
+        };
 
+        console.log("Sending to n8n:", receivingData);
 
-    // =========================================
-    // SUBMIT RECEIVING
-    // =========================================
-
-    document
-        .getElementById("submitWeightButton")
-        .addEventListener("click", function() {
-
-
-            // -------------------------------------
-            // GET VALUES
-            // -------------------------------------
-
-            const weightInput =
-                document.getElementById(
-                    "weightInput"
-                );
-
-
-            const weight =
-                parseFloat(weightInput.value);
-
-
-            const commoditySelect =
-                document.getElementById(
-                    "commoditySelect"
-                );
-
-
-            const packagingSelect =
-                document.getElementById(
-                    "packagingSelect"
-                );
-
-
-            const workflowSelect =
-                document.getElementById(
-                    "workflowSelect"
-                );
-
-
-            // -------------------------------------
-            // VALIDATE BARCODE
-            // -------------------------------------
-
-            if (!scannedBarcode) {
-
-                alert(
-                    "Please scan an inbound barcode first."
-                );
-
-                return;
-
+        fetch(WEBHOOK_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(receivingData)
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error("n8n returned HTTP " + response.status);
             }
+            return response.json();
+        })
+        .then(data => {
+            console.log("Receiving completed:", data);
 
-
-            // -------------------------------------
-            // VALIDATE WEIGHT
-            // -------------------------------------
-
-            if (!weight || weight <= 0) {
-
-                alert(
-                    "Please enter a valid gross weight."
-                );
-
-                weightInput.focus();
-
-                return;
-
-            }
-
-
-            // -------------------------------------
-            // GET SELECTED VALUES
-            // -------------------------------------
-
-            const commodityId =
-                parseInt(
-                    commoditySelect.value
-                );
-
-
-            const packagingTypeId =
-                parseInt(
-                    packagingSelect.value
-                );
-
-
-            const workflowStepId =
-                parseInt(
-                    workflowSelect.value
-                );
-
-
-            const selectedPackaging =
-                packagingSelect
-                    .options[
-                        packagingSelect.selectedIndex
-                    ];
-
-
-            const weightTare =
-                parseFloat(
-                    selectedPackaging.dataset.tare
-                );
-
-
-            // -------------------------------------
-            // VALIDATE NET WEIGHT
-            // -------------------------------------
-
-            if (weight < weightTare) {
-
-                alert(
-                    "Gross weight cannot be less than " +
-                    weightTare +
-                    " Lbs tare."
-                );
-
-                weightInput.focus();
-
-                return;
-
-            }
-
-
-            // -------------------------------------
-            // SUBMIT BUTTON
-            // -------------------------------------
-
-            const button =
-                document.getElementById(
-                    "submitWeightButton"
-                );
-
-
-            button.disabled = true;
-
-            button.innerText =
-                "Submitting...";
-
-
-            // -------------------------------------
-            // SCREEN MESSAGE
-            // -------------------------------------
-
-            const resultBox =
-                document.getElementById(
-                    "resultBox"
-                );
-
-
-            resultBox.className =
-                "result";
-
+            const netWeight = weight - weightTare;
+            resultBox.className = "result success";
 
             resultBox.innerHTML = `
-                Sending receiving information...<br>
-                <strong>${scannedBarcode}</strong>
+                <strong>Receiving Complete</strong>
+                <br><br>
+
+                Inbound:
+                ${scannedBarcode}
+
+                <br>
+
+                Gross:
+                ${weight.toFixed(2)} Lbs
+
+                <br>
+
+                Tare:
+                ${weightTare.toFixed(2)} Lbs
+
+                <br>
+
+                Net:
+                ${netWeight.toFixed(2)} Lbs
             `;
 
-
-            // =====================================
-            // SEND EVERYTHING TO N8N
-            // =====================================
-
-            const receivingData = {
-
-                barcode: scannedBarcode,
-
-                weightReceived: weight,
-
-                commodityId: commodityId,
-
-                packagingTypeId: packagingTypeId,
-
-                weightTare: weightTare,
-
-                workflowStepId: workflowStepId
-
-            };
-
-
-            console.log(
-                "Sending to n8n:",
-                receivingData
-            );
-
-
-            fetch(WEBHOOK_URL, {
-
-                method: "POST",
-
-                headers: {
-                    "Content-Type": "application/json"
-                },
-
-                body: JSON.stringify(
-                    receivingData
-                )
-
-            })
-
-
-            // =====================================
-            // WEBHOOK RESPONSE
-            // =====================================
-
-            .then(response => {
-
-                if (!response.ok) {
-
-                    throw new Error(
-                        "n8n returned HTTP " +
-                        response.status
-                    );
-
-                }
-
-                return response.json();
-
-            })
-
-
-            // =====================================
-            // SUCCESS
-            // =====================================
-
-            .then(data => {
-
-                console.log(
-                    "Receiving completed:",
-                    data
-                );
-
-
-                const netWeight =
-                    weight - weightTare;
-
-
-                resultBox.className =
-                    "result success";
-
-
-                resultBox.innerHTML = `
-                    <strong>Receiving Complete</strong>
-                    <br><br>
-
-                    Inbound:
-                    ${scannedBarcode}
-
-                    <br>
-
-                    Gross:
-                    ${weight.toFixed(2)} Lbs
-
-                    <br>
-
-                    Tare:
-                    ${weightTare.toFixed(2)} Lbs
-
-                    <br>
-
-                    Net:
-                    ${netWeight.toFixed(2)} Lbs
-                `;
-
-
-                // Hide receiving form
-                document.getElementById(
-                    "weightSection"
-                ).style.display = "none";
-
-
-                // Update instruction
-                document.getElementById(
-                    "instructionText"
-                ).innerText =
-                    "Receiving successfully submitted";
-
-
-                // Show new scan
-                document.getElementById(
-                    "newScanButton"
-                ).style.display = "block";
-
-            })
-
-
-            // =====================================
-            // ERROR
-            // =====================================
-
-            .catch(error => {
-
-                console.error(
-                    "Error submitting receiving:",
-                    error
-                );
-
-
-                resultBox.className =
-                    "result error";
-
-
-                resultBox.innerHTML = `
-                    <strong>Submission Failed</strong>
-                    <br><br>
-
-                    ${scannedBarcode}
-
-                    <br><br>
-
-                    Please try again.
-                `;
-
-
-                button.disabled = false;
-
-                button.innerText =
-                    "Submit Receiving";
-
-            });
-
+            document.getElementById("weightSection").style.display = "none";
+            document.getElementById("instructionText").innerText = "Receiving successfully submitted";
+            document.getElementById("newScanButton").style.display = "block";
+        })
+        .catch(error => {
+            console.error("Error submitting receiving:", error);
+
+            resultBox.className = "result error";
+            resultBox.innerHTML = `
+                <strong>Submission Failed</strong>
+                <br><br>
+
+                ${scannedBarcode}
+
+                <br><br>
+
+                Please try again.
+            `;
+
+            button.disabled = false;
+            button.innerText = "Submit Receiving";
         });
+    });
 
-
-    // =========================================
-    // NEW SCAN
-    // =========================================
-
-    document
-        .getElementById("newScanButton")
-        .addEventListener("click", function() {
-
-            location.reload();
-
-        });
-
+    document.getElementById("newScanButton").addEventListener("click", function () {
+        location.reload();
+    });
 </script>
 
 </body>
