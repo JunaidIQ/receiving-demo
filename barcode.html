@@ -563,8 +563,17 @@
                 const { BarcodeDetector } = await import(
                     "https://cdn.jsdelivr.net/npm/barcode-detector@3.2.2/dist/es/ponyfill.min.js"
                 );
+                // EAN_13/UPC_A re-added: excluding them fixed a false-positive
+                // against a non-standard test pattern earlier, but it also
+                // meant genuine EAN-13/UPC-A product barcodes (e.g. retail
+                // packaging) could never match at all, regardless of image
+                // quality - confirmed when a real, well-exposed EAN-13
+                // capture correctly found "no barcode" only because this
+                // format list didn't include it. Real barcodes validate via
+                // checksum, so this shouldn't reintroduce that false-positive
+                // risk the way it did against a non-conforming pattern.
                 detector = new BarcodeDetector({
-                    formats: ["code_128", "code_39", "qr_code"]
+                    formats: ["code_128", "code_39", "ean_13", "upc_a", "qr_code"]
                 });
                 log("barcode-detector polyfill loaded");
                 return true;
