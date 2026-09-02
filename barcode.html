@@ -6,7 +6,7 @@
 
     <title>Receiving Scanner</title>
 
-    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script src="./receiving-data.js"></script>
 
     <style>
@@ -32,6 +32,58 @@
         #reader {
             width: 100%;
             margin-top: 20px;
+        }
+
+        /* iOS-only engine below. Android keeps the html5-qrcode #reader
+           above, completely unchanged, since that's confirmed working.
+           These are hidden unless the iOS branch actually runs. */
+        #video {
+            display: none;
+            width: 100%;
+            max-height: 420px;
+            object-fit: contain;
+            margin-top: 20px;
+            border-radius: 8px;
+            background: #000;
+        }
+
+        #startCameraButton,
+        #stopCameraButton,
+        #cameraSelect,
+        #captureFrameButton {
+            display: none;
+        }
+
+        #captureFrameButton {
+            background: #555;
+        }
+
+        #debugFrame {
+            display: none;
+            width: 100%;
+            margin-top: 10px;
+            border-radius: 8px;
+            border: 2px solid #8a2c2c;
+        }
+
+        #debugPanel {
+            display: none;
+            margin-top: 20px;
+            max-height: 240px;
+            overflow-y: auto;
+            background: #111;
+            color: #b6f2b6;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        #debugPanel .log-error {
+            color: #ff9a9a;
         }
 
         .result {
@@ -124,6 +176,26 @@
 
     <div id="reader"></div>
 
+    <!-- iOS-only engine's UI. playsinline+muted are mandatory on iPhone:
+         without them Safari refuses to play the stream inline. -->
+    <video id="video" playsinline muted autoplay></video>
+
+    <select id="cameraSelect"></select>
+
+    <button id="startCameraButton" type="button">
+        Start Camera
+    </button>
+
+    <button id="stopCameraButton" type="button">
+        Stop Scanning
+    </button>
+
+    <button id="captureFrameButton" type="button">
+        Capture Frame for Debug
+    </button>
+
+    <img id="debugFrame" alt="Last captured frame">
+
     <div class="result" id="resultBox">
         Scanned:
         <strong id="barcodeResult">Nothing yet</strong>
@@ -206,6 +278,8 @@
         Scan Another Inbound
     </button>
 
+    <div id="debugPanel"></div>
+
 </div>
 
 <script>
@@ -216,6 +290,68 @@
 
     const WEBHOOK_URL =
         "https://n8n.leadsking.ai/webhook/barcode-erp";
+
+
+    // =========================================
+    // DEBUG LOGGING (iOS engine only - Android's
+    // html5-qrcode path below is untouched and
+    // doesn't use this). Set to true while testing
+    // on a device; the panel shows logs live with no
+    // Mac needed. Commit as false for production.
+    // =========================================
+
+    const DEBUG = true;
+
+    const debugPanel = document.getElementById("debugPanel");
+
+    function stringifyLogArg(arg) {
+        if (typeof arg === "string") return arg;
+        if (arg instanceof Error) return arg.message;
+        try {
+            return JSON.stringify(arg);
+        } catch {
+            return String(arg);
+        }
+    }
+
+    function renderLogLine(message, isError) {
+        if (!DEBUG) return;
+        const line = document.createElement("div");
+        if (isError) line.className = "log-error";
+        line.textContent = new Date().toLocaleTimeString() + "  " + message;
+        debugPanel.prepend(line);
+        while (debugPanel.childElementCount > 200) {
+            debugPanel.lastElementChild.remove();
+        }
+    }
+
+    function log(...args) {
+        if (!DEBUG) return;
+        console.log("[scanner]", ...args);
+        renderLogLine(args.map(stringifyLogArg).join(" "));
+    }
+
+    function logError(...args) {
+        if (!DEBUG) return;
+        console.error("[scanner]", ...args);
+        renderLogLine(args.map(stringifyLogArg).join(" "), true);
+    }
+
+    if (DEBUG) {
+        debugPanel.style.display = "block";
+        document.getElementById("captureFrameButton").style.display = "block";
+
+        log("userAgent:", navigator.userAgent);
+        log("isSecureContext:", window.isSecureContext, "protocol:", location.protocol);
+
+        window.addEventListener("error", (event) => {
+            logError("window error:", event.message, "@", event.filename + ":" + event.lineno);
+        });
+
+        window.addEventListener("unhandledrejection", (event) => {
+            logError("unhandled rejection:", event.reason);
+        });
+    }
 
 
     // =========================================
@@ -236,6 +372,10 @@
     // =========================================
 
     let scannedBarcode = null;
+
+    // Set by whichever engine (html5-qrcode or the iOS engine below)
+    // actually starts, so onScanSuccess doesn't need to know which.
+    let stopCurrentScanner = () => {};
 
     function getCommodityNameById(id) {
         const commodity = COMMODITIES.find(item => item.id === id);
@@ -327,12 +467,14 @@
         .addEventListener("change", updateTareUI);
 
     function onScanSuccess(decodedText) {
+        log("onScanSuccess:", decodedText);
+
         if (scannedBarcode !== null) return;
 
         scannedBarcode = decodedText;
         document.getElementById("barcodeResult").innerText = decodedText;
 
-        html5QrcodeScanner.clear();
+        stopCurrentScanner();
 
         document.getElementById("instructionText").innerText = "Enter receiving information";
 
@@ -351,16 +493,297 @@
         // ignore
     }
 
-    const html5QrcodeScanner = new Html5QrcodeScanner(
-        "reader",
-        {
-            fps: 10,
-            qrbox: { width: 300, height: 150 }
-        },
-        false
-    );
+    // =========================================
+    // ENGINE: iOS only. All iOS browsers (Safari, and Chrome/Firefox for
+    // iOS too, since Apple forces every one of them onto WebKit) lack a
+    // native BarcodeDetector, so html5-qrcode falls back to a slow JS
+    // decoder fed from a canvas capped at CSS-pixel size regardless of
+    // camera resolution - real resolution loss on a dense 1D barcode.
+    // "barcode-detector" polyfills the same detect() API with a WASM
+    // (zxing-cpp) decoder that reads the <video> element at its native
+    // resolution instead. Verified fixes folded in below:
+    //  - plain facingMode first (no resolution hint) so iOS hands back its
+    //    virtual, auto-focusing camera rather than a fixed-focus lens
+    //    (https://github.com/ericblade/quagga2/discussions/504)
+    //  - applyConstraints() afterwards to fix the low ~480x640 default
+    //    resolution that same plain request gets on iOS, without
+    //    triggering a fresh getUserMedia that could switch lenses
+    //  - formats restricted to what these labels actually use (EAN_13/
+    //    UPC_A false-positived against a real Code128 read in testing)
+    //  - camera picker + iOS backgrounding recovery
+    //    (https://bugs.webkit.org/show_bug.cgi?id=212040)
+    // =========================================
 
-    html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+    function isIOS() {
+        return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+            (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    }
+
+    function startIOSScanner() {
+        document.getElementById("reader").style.display = "none";
+
+        const video = document.getElementById("video");
+        const startButton = document.getElementById("startCameraButton");
+        const stopButton = document.getElementById("stopCameraButton");
+        const cameraSelect = document.getElementById("cameraSelect");
+
+        let detector = null;
+        let stream = null;
+        let timer = null;
+        let busy = false;
+        let selectedDeviceId = null;
+        let cameraShouldBeActive = false;
+
+        async function populateCameraList() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const cameras = devices.filter(d => d.kind === "videoinput");
+
+                cameraSelect.innerHTML = "";
+                cameras.forEach((camera, index) => {
+                    const option = document.createElement("option");
+                    option.value = camera.deviceId;
+                    option.textContent = camera.label || ("Camera " + (index + 1));
+                    cameraSelect.appendChild(option);
+                });
+
+                const activeDeviceId = stream?.getVideoTracks()[0]?.getSettings().deviceId;
+                if (activeDeviceId) cameraSelect.value = activeDeviceId;
+
+                cameraSelect.style.display = cameras.length > 1 ? "block" : "none";
+                log("Cameras found:", cameras.length);
+            } catch (error) {
+                logError("enumerateDevices failed:", error);
+            }
+        }
+
+        async function loadDetector() {
+            if (detector) return true;
+            try {
+                const { BarcodeDetector } = await import(
+                    "https://cdn.jsdelivr.net/npm/barcode-detector@3.2.2/dist/es/ponyfill.min.js"
+                );
+                detector = new BarcodeDetector({
+                    formats: ["code_128", "code_39", "qr_code"]
+                });
+                log("barcode-detector polyfill loaded");
+                return true;
+            } catch (error) {
+                logError("Failed to load barcode-detector:", error);
+                document.getElementById("instructionText").innerText =
+                    "Scanner failed to load - check network";
+                return false;
+            }
+        }
+
+        function stopIOSScanner() {
+            cameraShouldBeActive = false;
+            if (timer !== null) { clearInterval(timer); timer = null; }
+            if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+            video.srcObject = null;
+            video.style.display = "none";
+            startButton.style.display = "none";
+            stopButton.style.display = "none";
+            cameraSelect.style.display = "none";
+        }
+
+        const exceptionCounts = {};
+
+        async function scanFrame() {
+            if (busy || !detector || !video.videoWidth) return;
+            busy = true;
+            try {
+                const barcodes = await detector.detect(video);
+                if (barcodes.length && barcodes[0].rawValue) {
+                    log("Decoded:", barcodes[0].rawValue, "format=" + barcodes[0].format);
+                    onScanSuccess(barcodes[0].rawValue);
+                }
+            } catch (error) {
+                const type = error?.constructor?.name || "UnknownError";
+                exceptionCounts[type] = (exceptionCounts[type] || 0) + 1;
+                const count = exceptionCounts[type];
+                if (count === 1 || count % 100 === 0) {
+                    logError("Decode error (" + type + " x" + count + "):", error.message || error);
+                }
+            } finally {
+                busy = false;
+            }
+        }
+
+        async function startIOSCamera() {
+            log("startIOSCamera() called, selectedDeviceId=" + selectedDeviceId);
+            startButton.style.display = "none";
+            video.style.display = "block";
+
+            if (!window.isSecureContext || !navigator.mediaDevices) {
+                logError("Camera needs HTTPS. secure=" + window.isSecureContext);
+                document.getElementById("instructionText").innerText = "Camera needs HTTPS to run";
+                return;
+            }
+
+            if (!(await loadDetector())) {
+                startButton.style.display = "block";
+                return;
+            }
+
+            if (selectedDeviceId) {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: { deviceId: { exact: selectedDeviceId } },
+                        audio: false
+                    });
+                    log("Camera constraints accepted (selected device)");
+                } catch (error) {
+                    logError("Selected camera failed:", error);
+                }
+            }
+
+            const attempts = [
+                { facingMode: { ideal: "environment" } },
+                { facingMode: { ideal: "environment" },
+                  width: { ideal: 1920 }, height: { ideal: 1080 } },
+                { facingMode: { ideal: "environment" },
+                  width: { ideal: 1280 }, height: { ideal: 720 } }
+            ];
+
+            for (let index = 0; !stream && index < attempts.length; index++) {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: attempts[index],
+                        audio: false
+                    });
+                    log("Camera constraints accepted at attempt " + (index + 1));
+                } catch (error) {
+                    logError("Constraint attempt " + (index + 1) + " failed:", error);
+                }
+            }
+
+            if (!stream) {
+                logError("Camera failed: no constraint set accepted");
+                startButton.style.display = "block";
+                return;
+            }
+
+            try {
+                video.srcObject = stream;
+                await video.play();
+                cameraShouldBeActive = true;
+
+                const track = stream.getVideoTracks()[0];
+
+                track.addEventListener("ended", () => {
+                    if (!cameraShouldBeActive) return;
+                    logError("Camera track ended unexpectedly - restarting");
+                    stream = null;
+                    startIOSCamera();
+                });
+
+                log("Camera started", track.getSettings());
+
+                if (track.getSettings().width < 1280) {
+                    try {
+                        await track.applyConstraints({
+                            width: { ideal: 1920 }, height: { ideal: 1080 }
+                        });
+                        log("Resolution upgraded:", track.getSettings());
+                    } catch (error) {
+                        logError("applyConstraints (resolution) failed:", error);
+                    }
+                }
+
+                timer = setInterval(scanFrame, 200);
+                stopButton.style.display = "block";
+                await populateCameraList();
+            } catch (error) {
+                logError("Video playback failed:", error);
+                startButton.style.display = "block";
+            }
+        }
+
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState !== "visible" || !cameraShouldBeActive) return;
+            const track = stream?.getVideoTracks()[0];
+            if (!track || track.readyState === "ended" || track.muted) {
+                logError("Camera lost while backgrounded - restarting");
+                stream?.getTracks().forEach(t => t.stop());
+                stream = null;
+                startIOSCamera();
+            }
+        });
+
+        startButton.addEventListener("click", () => startIOSCamera());
+
+        stopButton.addEventListener("click", () => {
+            selectedDeviceId = null;
+            stopIOSScanner();
+            startButton.style.display = "block";
+        });
+
+        cameraSelect.addEventListener("change", () => {
+            selectedDeviceId = cameraSelect.value;
+            log("Camera manually switched to:", cameraSelect.selectedOptions[0]?.textContent);
+            if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+            startIOSCamera();
+        });
+
+        document.getElementById("captureFrameButton").addEventListener("click", async () => {
+            if (!video.videoWidth) {
+                logError("Capture failed: video not ready");
+                return;
+            }
+
+            const canvas = document.createElement("canvas");
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext("2d").drawImage(video, 0, 0);
+
+            const debugFrame = document.getElementById("debugFrame");
+            debugFrame.style.display = "block";
+
+            await new Promise(resolve => {
+                debugFrame.onload = resolve;
+                debugFrame.src = canvas.toDataURL("image/png");
+            });
+
+            log("Captured frame " + canvas.width + "x" + canvas.height);
+
+            if (!(await loadDetector())) return;
+
+            try {
+                const barcodes = await detector.detect(debugFrame);
+                if (barcodes.length) {
+                    log("Single-frame decode SUCCESS:", barcodes[0].rawValue,
+                        "format=" + barcodes[0].format);
+                } else {
+                    logError("Single-frame decode: no barcode found");
+                }
+            } catch (error) {
+                logError("Single-frame decode error:", error.message || error);
+            }
+        });
+
+        stopCurrentScanner = stopIOSScanner;
+
+        log("Starting iOS engine");
+        startIOSCamera();
+    }
+
+    if (isIOS()) {
+        startIOSScanner();
+    } else {
+        const html5QrcodeScanner = new Html5QrcodeScanner(
+            "reader",
+            {
+                fps: 10,
+                qrbox: { width: 300, height: 150 }
+            },
+            false
+        );
+
+        stopCurrentScanner = () => html5QrcodeScanner.clear();
+
+        html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+    }
 
     document.getElementById("submitWeightButton").addEventListener("click", function () {
         const weightInput = document.getElementById("weightInput");
